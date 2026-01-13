@@ -1,5 +1,6 @@
 import os
 import flet as ft
+import flet_geolocator as fg
 from datetime import datetime
 import zoneinfo
 import re 
@@ -20,7 +21,7 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.ADAPTIVE
     
     # GPS初期化
-    gd = ft.Geolocator()
+    gd = fg.Geolocator()
     page.overlay.append(gd)
 
     state = {"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False}
@@ -93,12 +94,16 @@ def main(page: ft.Page):
             supabase.table("attendance_log").delete().eq("社員ID", target_id).eq("日付", today).execute()
 
             # --- 4. 最新の位置情報を試行 ---
-            try:
-                # 確実に最新のメソッドを呼ぶため、少し丁寧な書き方にします
-                pos = await gd.get_current_position_async()
-            except Exception as e:
-                print(f"GPS Error: {e}")
-                pos = None
+            if stamp_type == "in" and lat is None:
+                page.open(ft.SnackBar(ft.Text("出勤場所を確認中...")))
+                try:
+                    # ✅ 差し替え：fg を使った詳細設定付きの呼び出し
+                    pos = await gd.get_current_position_async(
+                        location_settings=fg.GeolocatorSettings(accuracy=fg.GeolocatorAccuracy.HIGH)
+                    )
+                except Exception as e:
+                    print(f"GPS Error: {e}")
+                    pos = None
             if pos:
                 lat, lon = pos.latitude, pos.longitude
 
@@ -132,8 +137,10 @@ def main(page: ft.Page):
             if stamp_type == "in" and lat is None:
                 page.open(ft.SnackBar(ft.Text("出勤場所を確認中...")))
                 try:
-                    # 確実に最新のメソッドを呼ぶため、少し丁寧な書き方にします
-                    pos = await gd.get_current_position_async()
+                    # ✅ 差し替え：fg を使った詳細設定付きの呼び出し
+                    pos = await gd.get_current_position_async(
+                        location_settings=fg.GeolocatorSettings(accuracy=fg.GeolocatorAccuracy.HIGH)
+                    )
                 except Exception as e:
                     print(f"GPS Error: {e}")
                     pos = None
