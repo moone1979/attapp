@@ -46,7 +46,7 @@ def main(page: ft.Page):
         state.update({"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False})
         show_login()
 
-    # --- 1. 打刻画面 ---
+# --- 1. 打刻画面 ---
     def show_dashboard():
         page.clean()
         page.navigation_bar = get_nav(0)
@@ -69,7 +69,7 @@ def main(page: ft.Page):
 
         has_in, has_out = in_time != "", out_time != ""
 
-        # 修正保存ロジック（重複防止・上書き確定版）
+        # --- A. 手動保存ロジック ---
         async def save_manual(e):
             valid_re = r'^([01]\d|2[0-3]):([0-5]\d)$'
             if (in_field.value and not re.match(valid_re, in_field.value)) or \
@@ -79,142 +79,72 @@ def main(page: ft.Page):
                 page.update()
                 return
             
-            # --- 1. IDの型を特定（文字列か数値か） ---
-            # Supabase側が数値型の場合、int()に変換しないと一致しません
-            try:
-                target_id = int(state["user_id"])
-            except:
-                target_id = state["user_id"]
-
-            # --- 2. 既存のGPS情報を取得 ---
-            current_res = supabase.table("attendance_log").select("緯度, 経度").eq("社員ID", target_id).eq("日付", today).execute()
-            lat = current_res.data[0].get("緯度") if current_res.data else None
-            lon = current_res.data[0].get("経度") if current_res.data else None
-
-            # --- 3. 重複防止のため、一旦その日のデータを削除 ---
-            # これにより、確実に「今日のデータは1つ」になります
-            supabase.table("attendance_log").delete().eq("社員ID", target_id).eq("日付", today).execute()
-
-            # --- 4. 最新の位置情報を試行 ---
-            async def handle_stamp_with_gps(stamp_type):
-                # 1. 最初にスナックバーを表示（iPhoneに反応を即座に伝える）
-                page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
-                page.snack_bar.open = True
-                page.update()
-
-                lat, lon = None, None
-                try:
-                    # 2. GPS取得（5秒だけ待つ）
-                    pos = await gd.get_current_position_async(
-                        location_settings=fg.GeolocatorSettings(
-                            accuracy=fg.GeolocatorAccuracy.HIGH,
-                            timeout=5000 
-                        )
-                    )
-                    if pos:
-                        lat = pos.latitude
-                        lon = pos.longitude
-                        print(f"GPS取得成功: {lat}, {lon}")
-                    else:
-                        print("GPS取得失敗: 位置情報が取得できませんでした")
-                except Exception as e:
-                    print(f"GPS Error: {e}")
-                    lat, lon = None, None
-
-                # 3. 打刻処理（座標がNoneでも進める）
-                # 処理が始まる前に再度画面を更新
-                page.update()
-                await stamp_data(stamp_type, lat, lon)
-
-                # 4. 完了表示
-                page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}打刻を完了しました"))
-                page.snack_bar.open = True
-                page.update()
-
-            # --- 5. 新規データとして挿入（実質的な上書き） ---
-            supabase.table("attendance_log").insert({
-                "社員ID": target_id, 
+            # 保存 (upsertを使用)
+            supabase.table("attendance_log").upsert({
+                "社員ID": state["user_id"], 
                 "氏名": state["user_name"], 
                 "日付": today,
                 "出勤時刻": in_field.value or None, 
-                "退勤時刻": out_field.value or None,
-                "緯度": lat,
-                "経度": lon
-            }).execute()
+                "退勤時刻": out_field.value or None
+            }, on_conflict="社員ID, 日付").execute()
 
             state["edit_mode"] = False
             show_dashboard()
 
+        # --- B. GPS打刻ロジック ---
         async def handle_stamp_with_gps(stamp_type):
-            today = datetime.now(JST).strftime("%Y-%m-%d")
+            page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
+            page.snack_bar.open = True
+            page.update()
+
+            lat, lon = None, None
+            try:
+                # GPS取得（5秒待機）
+                pos = await gd.get_current_position_async(
+                    location_settings=fg.GeolocatorSettings(
+                        accuracy=fg.GeolocatorAccuracy.HIGH,
+                        timeout=5000 
+                    )
+                )
+                if pos:
+                    lat, lon = pos.latitude, pos.longitude
+                    print(f"GPS取得成功: {lat}, {lon}")
+            except Exception as e:
+                print(f"GPS Error: {e}")
+
             now_time = datetime.now(JST).strftime("%H:%M")
             
-            # 1. 既存データをチェック
+            # 既存データを確認
             check = supabase.table("attendance_log").select("*").eq("社員ID", state["user_id"]).eq("日付", today).execute()
             
-            lat = lon = None
-            if check.data:
-                lat = check.data[0].get("緯度")
-                lon = check.data[0].get("経度")
-
-            # 2. 出勤時、かつ、まだ座標がない場合のみGPSを取得
-            async def handle_stamp_with_gps(stamp_type):
-                # 1. 最初にスナックバーを表示（iPhoneに反応を即座に伝える）
-                page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
-                page.snack_bar.open = True
-                page.update()
-
-                lat, lon = None, None
-                try:
-                    # 2. GPS取得（5秒だけ待つ）
-                    pos = await gd.get_current_position_async(
-                        location_settings=fg.GeolocatorSettings(
-                            accuracy=fg.GeolocatorAccuracy.HIGH,
-                            timeout=5000 
-                        )
-                    )
-                    if pos:
-                        lat = pos.latitude
-                        lon = pos.longitude
-                        print(f"GPS取得成功: {lat}, {lon}")
-                    else:
-                        print("GPS取得失敗: 位置情報が取得できませんでした")
-                except Exception as e:
-                    print(f"GPS Error: {e}")
-                    lat, lon = None, None
-
-                # 3. 打刻処理（座標がNoneでも進める）
-                # 処理が始まる前に再度画面を更新
-                page.update()
-                await stamp_data(stamp_type, lat, lon)
-
-                # 4. 完了表示
-                page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}打刻を完了しました"))
-                page.snack_bar.open = True
-                page.update()
-            
-            # 3. 保存データの作成
             data = {
                 "社員ID": state["user_id"], 
                 "氏名": state["user_name"], 
-                "日付": today,
-                "緯度": lat,
-                "経度": lon
+                "日付": today
             }
+
+            # 座標が取れた場合のみ上書き（取れなかったら既存のままにする）
+            if lat and lon:
+                data["緯度"] = lat
+                data["経度"] = lon
+            elif check.data:
+                data["緯度"] = check.data[0].get("緯度")
+                data["経度"] = check.data[0].get("経度")
             
             if stamp_type == "in":
                 data["出勤時刻"] = now_time
             else:
                 data["退勤時刻"] = now_time
 
-            # 4. Supabaseへ書き込み
-            if check.data:
-                supabase.table("attendance_log").update(data).eq("社員ID", state["user_id"]).eq("日付", today).execute()
-            else:
-                supabase.table("attendance_log").insert(data).execute()
+            # Supabaseへ保存
+            supabase.table("attendance_log").upsert(data, on_conflict="社員ID, 日付").execute()
             
+            page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}完了"))
+            page.snack_bar.open = True
+            page.update()
             show_dashboard()
 
+        # 画面パーツの設定
         in_field = ft.TextField(value=in_time, label="出勤", width=140, text_align="center", dense=True)
         out_field = ft.TextField(value=out_time, label="退勤", width=140, text_align="center", dense=True)
 
@@ -233,7 +163,6 @@ def main(page: ft.Page):
                 ft.Row([ft.Icon(ft.Icons.LOGOUT, color="red"), ft.Text(f"退勤: {out_time or '--:--'}", size=18)], alignment="center"),
             ])
 
-        # メインコンテンツ
         page.add(
             ft.Column([
                 ft.Container(height=10),
@@ -262,7 +191,7 @@ def main(page: ft.Page):
                                   icon_color="blue")
                 ], alignment="center", spacing=20),
                 ft.Card(content=ft.Container(content=history_content, padding=15), width=320),
-                ft.Container(height=40), # 下部に余白
+                ft.Container(height=40),
             ], horizontal_alignment="center")
         )
 
@@ -334,8 +263,12 @@ def main(page: ft.Page):
         id_f = ft.TextField(label="社員ID", value="19671219")
         pw_f = ft.TextField(label="パスワード", password=True, value="19671219")
         def login_c(e):
-            res = supabase.table("社員ログイン情報").select("*").eq("社員ID", id_f.value).execute()
-            if not res.data: res = supabase.table("社員ログイン情報").select("*").eq("社員ID", int(id_f.value)).execute()
+            if not id_f.value: return # 空入力防止
+            
+            # IDが数字のみかチェックして検索
+            search_id = int(id_f.value) if id_f.value.isdigit() else id_f.value
+            res = supabase.table("社員ログイン情報").select("*").eq("社員ID", search_id).execute()
+            
             if res.data and str(res.data[0].get("パスワード")).strip() == pw_f.value:
                 state.update({"user_id": str(res.data[0].get("社員ID")), "user_name": res.data[0].get("氏名"), "user_dept": res.data[0].get("部署")})
                 show_dashboard()
