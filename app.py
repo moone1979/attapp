@@ -74,7 +74,9 @@ def main(page: ft.Page):
             valid_re = r'^([01]\d|2[0-3]):([0-5]\d)$'
             if (in_field.value and not re.match(valid_re, in_field.value)) or \
                (out_field.value and not re.match(valid_re, out_field.value)):
-                page.open(ft.SnackBar(ft.Text("HH:MM形式で入力してください"), bgcolor="red"))
+                page.snack_bar = ft.SnackBar(ft.Text("HH:MM形式で入力してください"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
                 return
             
             # --- 1. IDの型を特定（文字列か数値か） ---
@@ -135,7 +137,9 @@ def main(page: ft.Page):
 
             # 2. 出勤時、かつ、まだ座標がない場合のみGPSを取得
             if stamp_type == "in" and lat is None:
-                page.open(ft.SnackBar(ft.Text("出勤場所を確認中...")))
+                page.snack_bar = ft.SnackBar(ft.Text("出勤場所を確認中..."))
+                page.snack_bar.open = True
+                page.update()
                 try:
                     # ✅ 差し替え：fg を使った詳細設定付きの呼び出し
                     pos = await gd.get_current_position_async(
