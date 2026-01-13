@@ -282,4 +282,4 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     # Renderなどのクラウド環境では PORT 環境変数が指定されるためそれを使用
     port = int(os.getenv("PORT", 8550))
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="192.168.1.57)
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
