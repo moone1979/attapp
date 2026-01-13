@@ -1,5 +1,6 @@
 import os
 import flet as ft
+import flet.geolocator as geo
 from datetime import datetime
 import zoneinfo
 import re 
@@ -20,7 +21,7 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.ADAPTIVE
     
     # GPS初期化
-    gd = ft.geolocator.Geolocator()
+    gd = geo.Geolocator()
     page.overlay.append(gd)
 
     state = {"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False}
@@ -94,8 +95,8 @@ def main(page: ft.Page):
 
             # --- 4. 最新の位置情報を試行 ---
             pos = await gd.get_current_position_async(
-                location_settings=ft.geolocator.GeolocatorSettings(
-                    accuracy=ft.geolocator.GeolocatorAccuracy.HIGH
+                location_settings=geo.GeolocatorSettings(
+                    accuracy=geo.GeolocatorAccuracy.HIGH
                 )
             )
             if pos:
@@ -131,8 +132,8 @@ def main(page: ft.Page):
             if stamp_type == "in" and lat is None:
                 page.open(ft.SnackBar(ft.Text("出勤場所を確認中...")))
                 pos = await gd.get_current_position_async(
-                    location_settings=ft.geolocator.GeolocatorSettings(
-                        accuracy=ft.geolocator.GeolocatorAccuracy.HIGH
+                    location_settings=geo.GeolocatorSettings(
+                        accuracy=geo.GeolocatorAccuracy.HIGH
                     )
                 )
                 if pos:
