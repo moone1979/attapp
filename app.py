@@ -96,32 +96,40 @@ def main(page: ft.Page):
             supabase.table("attendance_log").delete().eq("社員ID", target_id).eq("日付", today).execute()
 
             # --- 4. 最新の位置情報を試行 ---
-            if stamp_type == "in" and lat is None:
-                page.snack_bar = ft.SnackBar(ft.Text("出勤場所を確認中..."))
+            async def handle_stamp_with_gps(stamp_type):
+                # 1. 最初にスナックバーを表示（iPhoneに反応を即座に伝える）
+                page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
                 page.snack_bar.open = True
                 page.update()
-            
+
+                lat, lon = None, None
                 try:
-                    # 10秒待機(timeout)を追加
+                    # 2. GPS取得（5秒だけ待つ）
                     pos = await gd.get_current_position_async(
                         location_settings=fg.GeolocatorSettings(
                             accuracy=fg.GeolocatorAccuracy.HIGH,
-                            timeout=10000 
+                            timeout=5000 
                         )
                     )
                     if pos:
-                        # ✅ ここで取得した座標を、保存用の変数に上書きする
-                        actual_lat = pos.latitude
-                        actual_lon = pos.longitude
+                        lat = pos.latitude
+                        lon = pos.longitude
+                        print(f"GPS取得成功: {lat}, {lon}")
                     else:
-                        actual_lat, actual_lon = None, None
+                        print("GPS取得失敗: 位置情報が取得できませんでした")
                 except Exception as e:
                     print(f"GPS Error: {e}")
-                    actual_lat, actual_lon = None, None
+                    lat, lon = None, None
 
-                # ✅ 保存用関数を呼ぶとき、取得したばかりの座標(actual_lat/lon)を渡す！
-                # (もし関数名が stamp_data(stamp_type, lat, lon) なら)
-                await stamp_data(stamp_type, actual_lat, actual_lon)
+                # 3. 打刻処理（座標がNoneでも進める）
+                # 処理が始まる前に再度画面を更新
+                page.update()
+                await stamp_data(stamp_type, lat, lon)
+
+                # 4. 完了表示
+                page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}打刻を完了しました"))
+                page.snack_bar.open = True
+                page.update()
 
             # --- 5. 新規データとして挿入（実質的な上書き） ---
             supabase.table("attendance_log").insert({
@@ -150,32 +158,40 @@ def main(page: ft.Page):
                 lon = check.data[0].get("経度")
 
             # 2. 出勤時、かつ、まだ座標がない場合のみGPSを取得
-            if stamp_type == "in" and lat is None:
-                page.snack_bar = ft.SnackBar(ft.Text("出勤場所を確認中..."))
+            async def handle_stamp_with_gps(stamp_type):
+                # 1. 最初にスナックバーを表示（iPhoneに反応を即座に伝える）
+                page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
                 page.snack_bar.open = True
                 page.update()
-            
+
+                lat, lon = None, None
                 try:
-                    # 10秒待機(timeout)を追加
+                    # 2. GPS取得（5秒だけ待つ）
                     pos = await gd.get_current_position_async(
                         location_settings=fg.GeolocatorSettings(
                             accuracy=fg.GeolocatorAccuracy.HIGH,
-                            timeout=10000 
+                            timeout=5000 
                         )
                     )
                     if pos:
-                    # ✅ ここで取得した座標を、保存用の変数に上書きする
-                        actual_lat = pos.latitude
-                        actual_lon = pos.longitude
+                        lat = pos.latitude
+                        lon = pos.longitude
+                        print(f"GPS取得成功: {lat}, {lon}")
                     else:
-                        actual_lat, actual_lon = None, None
+                        print("GPS取得失敗: 位置情報が取得できませんでした")
                 except Exception as e:
                     print(f"GPS Error: {e}")
-                    actual_lat, actual_lon = None, None
+                    lat, lon = None, None
 
-                # ✅ 保存用関数を呼ぶとき、取得したばかりの座標(actual_lat/lon)を渡す！
-                # (もし関数名が stamp_data(stamp_type, lat, lon) なら)
-                await stamp_data(stamp_type, actual_lat, actual_lon)
+                # 3. 打刻処理（座標がNoneでも進める）
+                # 処理が始まる前に再度画面を更新
+                page.update()
+                await stamp_data(stamp_type, lat, lon)
+
+                # 4. 完了表示
+                page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}打刻を完了しました"))
+                page.snack_bar.open = True
+                page.update()
             
             # 3. 保存データの作成
             data = {
