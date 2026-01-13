@@ -22,7 +22,7 @@ def main(page: ft.Page):
     
     # GPS初期化
     gd = fg.Geolocator()
-    page.overlay.append(gd)
+    page.add(gd)
 
     state = {"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False}
 
