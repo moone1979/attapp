@@ -20,7 +20,7 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.ADAPTIVE
     
     # GPS初期化
-    gd = ft.Geolocator()
+    gd = ft.geolocator.Geolocator()
     page.overlay.append(gd)
 
     state = {"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False}
@@ -93,7 +93,11 @@ def main(page: ft.Page):
             supabase.table("attendance_log").delete().eq("社員ID", target_id).eq("日付", today).execute()
 
             # --- 4. 最新の位置情報を試行 ---
-            pos = await gd.get_current_position_async()
+            pos = await gd.get_current_position_async(
+                location_settings=ft.geolocator.GeolocatorSettings(
+                    accuracy=ft.geolocator.GeolocatorAccuracy.HIGH
+                )
+            )
             if pos:
                 lat, lon = pos.latitude, pos.longitude
 
@@ -126,7 +130,11 @@ def main(page: ft.Page):
             # 2. 出勤時、かつ、まだ座標がない場合のみGPSを取得
             if stamp_type == "in" and lat is None:
                 page.open(ft.SnackBar(ft.Text("出勤場所を確認中...")))
-                pos = await gd.get_current_position_async()
+                pos = await gd.get_current_position_async(
+                    location_settings=ft.geolocator.GeolocatorSettings(
+                        accuracy=ft.geolocator.GeolocatorAccuracy.HIGH
+                    )
+                )
                 if pos:
                     lat, lon = pos.latitude, pos.longitude
             
