@@ -119,9 +119,9 @@ def main(page: ft.Page):
                     print(f"GPS Error: {e}")
                     actual_lat, actual_lon = None, None
 
-            # ✅ 保存用関数を呼ぶとき、取得したばかりの座標(actual_lat/lon)を渡す！
-            # (もし関数名が stamp_data(stamp_type, lat, lon) なら)
-            await stamp_data(stamp_type, actual_lat, actual_lon)
+                # ✅ 保存用関数を呼ぶとき、取得したばかりの座標(actual_lat/lon)を渡す！
+                # (もし関数名が stamp_data(stamp_type, lat, lon) なら)
+                await stamp_data(stamp_type, actual_lat, actual_lon)
 
             # --- 5. 新規データとして挿入（実質的な上書き） ---
             supabase.table("attendance_log").insert({
@@ -164,7 +164,7 @@ def main(page: ft.Page):
                         )
                     )
                     if pos:
-                        # ✅ ここで取得した座標を、保存用の変数に上書きする
+                    # ✅ ここで取得した座標を、保存用の変数に上書きする
                         actual_lat = pos.latitude
                         actual_lon = pos.longitude
                     else:
@@ -172,6 +172,10 @@ def main(page: ft.Page):
                 except Exception as e:
                     print(f"GPS Error: {e}")
                     actual_lat, actual_lon = None, None
+
+                # ✅ 保存用関数を呼ぶとき、取得したばかりの座標(actual_lat/lon)を渡す！
+                # (もし関数名が stamp_data(stamp_type, lat, lon) なら)
+                await stamp_data(stamp_type, actual_lat, actual_lon)
             
             # 3. 保存データの作成
             data = {
