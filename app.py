@@ -93,49 +93,36 @@ def main(page: ft.Page):
 
         # --- B. GPS打刻ロジック ---
         async def handle_stamp_with_gps(stamp_type):
-            page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中... (最大15秒)"))
+            page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
             page.snack_bar.open = True
             page.update()
 
             lat, lon = None, None
             try:
-                # タイムアウトを15秒に、精度を「中」に少し落として取得率を上げます
-                pos = await gd.get_current_position_async(
-                    location_settings=fg.GeolocatorSettings(
-                        accuracy=fg.GeolocatorAccuracy.BALANCED, # HIGHから変更
-                        timeout=15000 # 15秒に延長
-                    )
-                )
+                # 複雑な設定をあえて渡さず、シンプルに呼び出す（これが一番通る）
+                pos = await gd.get_current_position_async()
                 if pos:
                     lat, lon = pos.latitude, pos.longitude
                     print(f"GPS取得成功: {lat}, {lon}")
-                else:
-                    print("GPS取得結果が空です")
             except Exception as e:
                 print(f"GPS Error: {e}")
 
             now_time = datetime.now(JST).strftime("%H:%M")
             
-            # IDの型を念のため数値に変換（Supabase側の型に合わせる）
-            try:
-                target_id = int(state["user_id"])
-            except:
-                target_id = state["user_id"]
-
-            # 既存データを確認
-            check = supabase.table("attendance_log").select("*").eq("社員ID", target_id).eq("日付", today).execute()
+            # 既存データをチェック（以前取得した座標があれば保持するため）
+            check = supabase.table("attendance_log").select("*").eq("社員ID", state["user_id"]).eq("日付", today).execute()
             
             data = {
-                "社員ID": target_id, 
+                "社員ID": state["user_id"], 
                 "氏名": state["user_name"], 
                 "日付": today
             }
 
-            # 座標が取れた場合のみ上書き
-            if lat is not None and lon is not None:
+            # 今回取れた場合、または過去に取れていた場合
+            if lat and lon:
                 data["緯度"] = lat
                 data["経度"] = lon
-            elif check.data and len(check.data) > 0:
+            elif check.data:
                 data["緯度"] = check.data[0].get("緯度")
                 data["経度"] = check.data[0].get("経度")
             
@@ -144,7 +131,7 @@ def main(page: ft.Page):
             else:
                 data["退勤時刻"] = now_time
 
-            # Supabaseへ保存
+            # 保存 (upsertを使用)
             supabase.table("attendance_log").upsert(data, on_conflict="社員ID, 日付").execute()
             
             page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}完了"))
