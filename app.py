@@ -18,9 +18,10 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.LIGHT
     page.scroll = ft.ScrollMode.ADAPTIVE
     
-    # --- GPS初期化（ここが重要：取れていた時の設定に戻す） ---
+    # --- GPS初期化 (修正版) ---
+    # FletのGeolocatorを正しく初期化
     gd = ft.Geolocator()
-    page.overlay.append(gd) # addではなくoverlayを使用
+    page.overlay.append(gd)
 
     state = {"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False}
 
@@ -44,7 +45,6 @@ def main(page: ft.Page):
         state.update({"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False})
         show_login()
 
-# --- 1. 打刻画面 ---
     def show_dashboard():
         page.clean()
         page.navigation_bar = get_nav(0)
@@ -67,7 +67,6 @@ def main(page: ft.Page):
 
         has_in, has_out = in_time != "", out_time != ""
 
-        # --- 手動保存ロジック ---
         async def save_manual(e):
             valid_re = r'^([01]\d|2[0-3]):([0-5]\d)$'
             if (in_field.value and not re.match(valid_re, in_field.value)) or \
@@ -75,7 +74,6 @@ def main(page: ft.Page):
                 page.open(ft.SnackBar(ft.Text("HH:MM形式で入力してください"), bgcolor="red"))
                 return
             
-            # upsertで保存（SQLのユニーク制約が活きる）
             supabase.table("attendance_log").upsert({
                 "社員ID": state["user_id"], 
                 "氏名": state["user_name"], 
@@ -87,17 +85,20 @@ def main(page: ft.Page):
             state["edit_mode"] = False
             show_dashboard()
 
-        # --- GPS打刻ロジック ---
         async def handle_stamp_with_gps(stamp_type):
             page.open(ft.SnackBar(ft.Text("位置情報を確認中...")))
+            page.update()
             
-            # 位置情報取得（成功していた時のシンプルな呼び出し）
-            pos = await gd.get_current_position_async()
-            lat, lon = (pos.latitude, pos.longitude) if pos else (None, None)
+            lat = lon = None
+            try:
+                # 取得（以前成功していたシンプルな呼び出し）
+                pos = await gd.get_current_position_async()
+                if pos:
+                    lat, lon = pos.latitude, pos.longitude
+            except Exception as ex:
+                print(f"GPS Error: {ex}")
 
             now_time = datetime.now(JST).strftime("%H:%M")
-            
-            # 既存データを確認（前回の座標があれば維持）
             check = supabase.table("attendance_log").select("*").eq("社員ID", state["user_id"]).eq("日付", today).execute()
             
             data = {
@@ -106,7 +107,6 @@ def main(page: ft.Page):
                 "日付": today
             }
 
-            # 座標が取れた場合のみ上書き、取れなかったら既存を維持
             if lat and lon:
                 data["緯度"] = lat
                 data["経度"] = lon
@@ -119,13 +119,11 @@ def main(page: ft.Page):
             else:
                 data["退勤時刻"] = now_time
 
-            # 保存
             supabase.table("attendance_log").upsert(data, on_conflict="社員ID, 日付").execute()
             
             page.open(ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}完了")))
             show_dashboard()
 
-        # UIパーツ
         in_field = ft.TextField(value=in_time, label="出勤", width=140, text_align="center", dense=True)
         out_field = ft.TextField(value=out_time, label="退勤", width=140, text_align="center", dense=True)
 
@@ -175,11 +173,9 @@ def main(page: ft.Page):
             ], horizontal_alignment="center")
         )
 
-# --- 2. 勤務履歴画面 (残業計算ロジック込み) ---
     def show_history():
         page.clean()
         page.navigation_bar = get_nav(1)
-        
         display_name = f"{state['user_name']} さん ({state.get('user_dept', '未設定')})"
         page.appbar = ft.AppBar(title=ft.Text(display_name, size=16), bgcolor="#E1E2E5", automatically_imply_leading=False, actions=[ft.TextButton("ログアウト", icon=ft.Icons.LOGOUT, on_click=logout, icon_color="red")])
         
@@ -225,15 +221,7 @@ def main(page: ft.Page):
         options = [ft.dropdown.Option(f"{(now.year if (now.month-i)>0 else now.year-1)}/{((now.month-i-1)%12+1):02d}") for i in range(6)]
         month_dropdown = ft.Dropdown(label="給与月", options=options, width=160, value=options[0].key)
         
-        page.add(
-            ft.Column([
-                ft.Container(height=10),
-                ft.Row([month_dropdown, ft.FilledButton("表示", on_click=load_history_data)], alignment="center"),
-                ft.Divider(),
-                ft.Row([ft.Text("勤務一覧", weight="bold"), total_overtime_label], alignment="space-between"),
-                table_container,
-            ], expand=True)
-        )
+        page.add(ft.Column([ft.Container(height=10), ft.Row([month_dropdown, ft.FilledButton("表示", on_click=load_history_data)], alignment="center"), ft.Divider(), ft.Row([ft.Text("勤務一覧", weight="bold"), total_overtime_label], alignment="space-between"), table_container], expand=True))
         load_history_data(None)
 
     def show_login():
