@@ -1,4 +1,3 @@
-flet==0.80.1
-flet-geolocator==0.80.1
+flet>=0.25.0
 supabase
 python-dotenv
