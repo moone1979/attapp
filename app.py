@@ -1,6 +1,5 @@
 import os
 import flet as ft
-import flet_geolocator as fg
 from datetime import datetime
 import zoneinfo
 import re 
@@ -14,15 +13,14 @@ JST = zoneinfo.ZoneInfo("Asia/Tokyo")
 
 def main(page: ft.Page):
     page.title = "社内勤怠システム"
-    page.window.width = 450
-    page.window.height = 800
+    page.window_width = 450
+    page.window_height = 800
     page.theme_mode = ft.ThemeMode.LIGHT
-    # スクロールを有効化
     page.scroll = ft.ScrollMode.ADAPTIVE
     
-    # GPS初期化
-    gd = fg.Geolocator()
-    page.add(gd)
+    # --- GPS初期化（ここが重要：取れていた時の設定に戻す） ---
+    gd = ft.Geolocator()
+    page.overlay.append(gd) # addではなくoverlayを使用
 
     state = {"user_id": "", "user_name": "", "user_dept": "", "edit_mode": False}
 
@@ -69,17 +67,15 @@ def main(page: ft.Page):
 
         has_in, has_out = in_time != "", out_time != ""
 
-        # --- A. 手動保存ロジック ---
+        # --- 手動保存ロジック ---
         async def save_manual(e):
             valid_re = r'^([01]\d|2[0-3]):([0-5]\d)$'
             if (in_field.value and not re.match(valid_re, in_field.value)) or \
                (out_field.value and not re.match(valid_re, out_field.value)):
-                page.snack_bar = ft.SnackBar(ft.Text("HH:MM形式で入力してください"), bgcolor="red")
-                page.snack_bar.open = True
-                page.update()
+                page.open(ft.SnackBar(ft.Text("HH:MM形式で入力してください"), bgcolor="red"))
                 return
             
-            # 保存 (upsertを使用)
+            # upsertで保存（SQLのユニーク制約が活きる）
             supabase.table("attendance_log").upsert({
                 "社員ID": state["user_id"], 
                 "氏名": state["user_name"], 
@@ -91,25 +87,17 @@ def main(page: ft.Page):
             state["edit_mode"] = False
             show_dashboard()
 
-        # --- B. GPS打刻ロジック ---
+        # --- GPS打刻ロジック ---
         async def handle_stamp_with_gps(stamp_type):
-            page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
-            page.snack_bar.open = True
-            page.update()
-
-            lat, lon = None, None
-            try:
-                # 複雑な設定をあえて渡さず、シンプルに呼び出す（これが一番通る）
-                pos = await gd.get_current_position_async()
-                if pos:
-                    lat, lon = pos.latitude, pos.longitude
-                    print(f"GPS取得成功: {lat}, {lon}")
-            except Exception as e:
-                print(f"GPS Error: {e}")
+            page.open(ft.SnackBar(ft.Text("位置情報を確認中...")))
+            
+            # 位置情報取得（成功していた時のシンプルな呼び出し）
+            pos = await gd.get_current_position_async()
+            lat, lon = (pos.latitude, pos.longitude) if pos else (None, None)
 
             now_time = datetime.now(JST).strftime("%H:%M")
             
-            # 既存データをチェック（以前取得した座標があれば保持するため）
+            # 既存データを確認（前回の座標があれば維持）
             check = supabase.table("attendance_log").select("*").eq("社員ID", state["user_id"]).eq("日付", today).execute()
             
             data = {
@@ -118,7 +106,7 @@ def main(page: ft.Page):
                 "日付": today
             }
 
-            # 今回取れた場合、または過去に取れていた場合
+            # 座標が取れた場合のみ上書き、取れなかったら既存を維持
             if lat and lon:
                 data["緯度"] = lat
                 data["経度"] = lon
@@ -131,15 +119,13 @@ def main(page: ft.Page):
             else:
                 data["退勤時刻"] = now_time
 
-            # 保存 (upsertを使用)
+            # 保存
             supabase.table("attendance_log").upsert(data, on_conflict="社員ID, 日付").execute()
             
-            page.snack_bar = ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}完了"))
-            page.snack_bar.open = True
-            page.update()
+            page.open(ft.SnackBar(ft.Text(f"{'出勤' if stamp_type=='in' else '退勤'}完了")))
             show_dashboard()
 
-        # 画面パーツの設定
+        # UIパーツ
         in_field = ft.TextField(value=in_time, label="出勤", width=140, text_align="center", dense=True)
         out_field = ft.TextField(value=out_time, label="退勤", width=140, text_align="center", dense=True)
 
@@ -148,7 +134,7 @@ def main(page: ft.Page):
                 ft.Text("時刻修正", weight="bold"),
                 in_field, out_field,
                 ft.Row([
-                    ft.FilledButton("保存", on_click=lambda e: page.run_task(save_manual, e), style=ft.ButtonStyle(bgcolor="green", color="white")),
+                    ft.FilledButton("保存", on_click=save_manual, style=ft.ButtonStyle(bgcolor="green", color="white")),
                     ft.TextButton("キャンセル", on_click=lambda _: [state.update({"edit_mode": False}), show_dashboard()]),
                 ], alignment="center")
             ], horizontal_alignment="center")
@@ -186,11 +172,10 @@ def main(page: ft.Page):
                                   icon_color="blue")
                 ], alignment="center", spacing=20),
                 ft.Card(content=ft.Container(content=history_content, padding=15), width=320),
-                ft.Container(height=40),
             ], horizontal_alignment="center")
         )
 
-    # --- 2. 勤務履歴画面 ---
+# --- 2. 勤務履歴画面 (残業計算ロジック込み) ---
     def show_history():
         page.clean()
         page.navigation_bar = get_nav(1)
@@ -198,7 +183,7 @@ def main(page: ft.Page):
         display_name = f"{state['user_name']} さん ({state.get('user_dept', '未設定')})"
         page.appbar = ft.AppBar(title=ft.Text(display_name, size=16), bgcolor="#E1E2E5", automatically_imply_leading=False, actions=[ft.TextButton("ログアウト", icon=ft.Icons.LOGOUT, on_click=logout, icon_color="red")])
         
-        table_container = ft.Column(scroll=ft.ScrollMode.AUTO)
+        table_container = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
         total_overtime_label = ft.Text("合計残業時間: 0.00 時間", size=18, weight="bold", color="blue")
 
         def calculate_overtime(in_str, out_str):
@@ -224,7 +209,7 @@ def main(page: ft.Page):
             end_date = f"{sel_year}-{sel_month:02d}-25"
             res = supabase.table("attendance_log").select("*").eq("社員ID", state["user_id"]).gte("日付", start_date).lte("日付", end_date).order("日付", desc=False).execute()
             
-            data_table = ft.DataTable(columns=[ft.DataColumn(ft.Text("日付")), ft.DataColumn(ft.Text("出勤")), ft.DataColumn(ft.Text("退勤")), ft.DataColumn(ft.Text("残業"))], rows=[], column_spacing=15)
+            data_table = ft.DataTable(columns=[ft.DataColumn(ft.Text("日付")), ft.DataColumn(ft.Text("出勤")), ft.DataColumn(ft.Text("退勤")), ft.DataColumn(ft.Text("残業"))], rows=[], column_spacing=20)
             total_over = 0.0
             if res.data:
                 for item in res.data:
@@ -247,8 +232,7 @@ def main(page: ft.Page):
                 ft.Divider(),
                 ft.Row([ft.Text("勤務一覧", weight="bold"), total_overtime_label], alignment="space-between"),
                 table_container,
-                ft.Container(height=40),
-            ], horizontal_alignment="center")
+            ], expand=True)
         )
         load_history_data(None)
 
@@ -258,12 +242,8 @@ def main(page: ft.Page):
         id_f = ft.TextField(label="社員ID", value="19671219")
         pw_f = ft.TextField(label="パスワード", password=True, value="19671219")
         def login_c(e):
-            if not id_f.value: return # 空入力防止
-            
-            # IDが数字のみかチェックして検索
-            search_id = int(id_f.value) if id_f.value.isdigit() else id_f.value
-            res = supabase.table("社員ログイン情報").select("*").eq("社員ID", search_id).execute()
-            
+            res = supabase.table("社員ログイン情報").select("*").eq("社員ID", id_f.value).execute()
+            if not res.data: res = supabase.table("社員ログイン情報").select("*").eq("社員ID", int(id_f.value)).execute()
             if res.data and str(res.data[0].get("パスワード")).strip() == pw_f.value:
                 state.update({"user_id": str(res.data[0].get("社員ID")), "user_name": res.data[0].get("氏名"), "user_dept": res.data[0].get("部署")})
                 show_dashboard()
@@ -272,6 +252,5 @@ def main(page: ft.Page):
     show_login()
 
 if __name__ == "__main__":
-    # Renderなどのクラウド環境では PORT 環境変数が指定されるためそれを使用
     port = int(os.getenv("PORT", 8550))
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
