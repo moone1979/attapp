@@ -93,41 +93,49 @@ def main(page: ft.Page):
 
         # --- B. GPS打刻ロジック ---
         async def handle_stamp_with_gps(stamp_type):
-            page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中..."))
+            page.snack_bar = ft.SnackBar(ft.Text("位置情報を確認中... (最大15秒)"))
             page.snack_bar.open = True
             page.update()
 
             lat, lon = None, None
             try:
-                # GPS取得（5秒待機）
+                # タイムアウトを15秒に、精度を「中」に少し落として取得率を上げます
                 pos = await gd.get_current_position_async(
                     location_settings=fg.GeolocatorSettings(
-                        accuracy=fg.GeolocatorAccuracy.HIGH,
-                        timeout=5000 
+                        accuracy=fg.GeolocatorAccuracy.BALANCED, # HIGHから変更
+                        timeout=15000 # 15秒に延長
                     )
                 )
                 if pos:
                     lat, lon = pos.latitude, pos.longitude
                     print(f"GPS取得成功: {lat}, {lon}")
+                else:
+                    print("GPS取得結果が空です")
             except Exception as e:
                 print(f"GPS Error: {e}")
 
             now_time = datetime.now(JST).strftime("%H:%M")
             
+            # IDの型を念のため数値に変換（Supabase側の型に合わせる）
+            try:
+                target_id = int(state["user_id"])
+            except:
+                target_id = state["user_id"]
+
             # 既存データを確認
-            check = supabase.table("attendance_log").select("*").eq("社員ID", state["user_id"]).eq("日付", today).execute()
+            check = supabase.table("attendance_log").select("*").eq("社員ID", target_id).eq("日付", today).execute()
             
             data = {
-                "社員ID": state["user_id"], 
+                "社員ID": target_id, 
                 "氏名": state["user_name"], 
                 "日付": today
             }
 
-            # 座標が取れた場合のみ上書き（取れなかったら既存のままにする）
-            if lat and lon:
+            # 座標が取れた場合のみ上書き
+            if lat is not None and lon is not None:
                 data["緯度"] = lat
                 data["経度"] = lon
-            elif check.data:
+            elif check.data and len(check.data) > 0:
                 data["緯度"] = check.data[0].get("緯度")
                 data["経度"] = check.data[0].get("経度")
             
